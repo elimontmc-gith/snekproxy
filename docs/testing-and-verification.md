@@ -13,12 +13,13 @@ The project does not treat skipped tests as passing.
 
 ## Current repository status
 
-This scaffold is intentionally conservative and incomplete with respect to production verification. The following statuses are recorded for the repository as it exists now.
+The implementation is intentionally incomplete with respect to production verification. Unit tests cover config validation, lifecycle ordering, fail-closed state reporting, and nftables command behavior through a fake runner. They do not change host networking or prove kernel enforcement.
 
 ### Linux implementation
 
+- Config loading and lifecycle unit tests: `PASS`
+- nftables live enforcement on a host: `NOT VERIFIED`
 - TUN lifecycle design: `NOT VERIFIED`
-- nftables enforcement: `NOT VERIFIED`
 - NetworkManager integration: `NOT VERIFIED`
 - DNS policy enforcement: `NOT VERIFIED`
 - Failure and recovery testing: `NOT VERIFIED`
@@ -34,6 +35,7 @@ This scaffold is intentionally conservative and incomplete with respect to produ
 | Area | Test | Expected result | Status |
 |---|---|---|---|
 | Activation | Service starts with blocked default | No direct bypass | NOT VERIFIED |
+| Linux foundation | Exact owned nftables policy only | Unknown policy is never overwritten or deleted | PASS (unit tests); NOT VERIFIED (live host) |
 | TUN | Interface creation and packet receive | Safe and bounded | NOT VERIFIED |
 | TCP | Bidirectional forwarding | Functional and bounded | NOT VERIFIED |
 | UDP | Datagram forwarding | Bounded and safe | NOT VERIFIED |
