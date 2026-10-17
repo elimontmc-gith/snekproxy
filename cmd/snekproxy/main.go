@@ -1,78 +1,115 @@
 package main
 
 import (
-    "flag"
-    "fmt"
-    "os"
-    "time"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"snekproxy/internal/config"
+	"snekproxy/internal/contract"
+	"snekproxy/internal/enforcement"
 )
 
-const (
-    stateDisabled = "DISABLED"
-    stateActivating = "ACTIVATING"
-    stateProtected = "PROTECTED"
-    stateDegradedBlocked = "DEGRADED_BLOCKED"
-    stateStopping = "STOPPING"
-    stateRecovering = "RECOVERING"
-    stateErrorBlocked = "ERROR_BLOCKED"
-)
-
-type config struct {
-    Enable bool
-    ConfigPath string
-    Verbose bool
+type options struct {
+	configPath string
+	enable     bool
+	disable    bool
+	verbose    bool
 }
 
-type protectionState struct {
-    State string
-    Reason string
-    Timestamp time.Time
+func parseOptions(args []string, output io.Writer) (options, error) {
+	var opts options
+	flags := flag.NewFlagSet("snekproxy", flag.ContinueOnError)
+	flags.SetOutput(output)
+	flags.StringVar(&opts.configPath, "config", "config.yaml", "configuration path")
+	flags.BoolVar(&opts.enable, "enable", false, "explicitly activate blocking enforcement")
+	flags.BoolVar(&opts.disable, "disable", false, "remove the owned SnekProxy blocking policy")
+	flags.BoolVar(&opts.verbose, "verbose", false, "enable verbose logging")
+	if err := flags.Parse(args); err != nil {
+		return options{}, err
+	}
+	if flags.NArg() != 0 {
+		return options{}, fmt.Errorf("unexpected arguments: %v", flags.Args())
+	}
+	if opts.enable && opts.disable {
+		return options{}, errors.New("--enable and --disable cannot be used together")
+	}
+	return opts, nil
 }
 
-type serviceRuntime struct {
-    state protectionState
-    config config
+func run(args []string, stdout, stderr io.Writer) error {
+	opts, err := parseOptions(args, stderr)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+
+	platform := enforcement.NewPlatform()
+	if opts.disable {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		state, err := enforcement.Deactivate(ctx, platform)
+		fmt.Fprintf(stdout, "Protection state: %s (%s)\n", state.Name, state.Reason)
+		return err
+	}
+
+	cfg, err := config.Load(opts.configPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Verbose || opts.verbose {
+		fmt.Fprintf(stdout, "SnekProxy configuration loaded from %s\n", opts.configPath)
+	}
+
+	if !cfg.Enabled {
+		state := disabledState("protection disabled by config")
+		fmt.Fprintf(stdout, "Protection state: %s (%s)\n", state.Name, state.Reason)
+		return nil
+	}
+	if !opts.enable {
+		state := disabledState("explicit --enable is required to change host networking")
+		fmt.Fprintf(stdout, "Protection state: %s (%s)\n", state.Name, state.Reason)
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	state, err := enforcement.Activate(ctx, platform)
+	cancel()
+	fmt.Fprintf(stdout, "Protection state: %s (%s)\n", state.Name, state.Reason)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(stdout, "SnekProxy is in blocking-only mode; use --disable to remove its firewall policy.")
+	if cfg.Verbose || opts.verbose {
+		fmt.Fprintln(stdout, "Stopping this process does not remove the firewall policy.")
+	}
+
+	waitForShutdown()
+	return nil
 }
 
-func parseConfig() config {
-    cfg := config{}
-    flag.BoolVar(&cfg.Enable, "enable", false, "enable protection")
-    flag.BoolVar(&cfg.Verbose, "verbose", false, "enable verbose logging")
-    flag.StringVar(&cfg.ConfigPath, "config", "config.yaml", "configuration path")
-    flag.Parse()
-    return cfg
+func disabledState(reason string) contract.State {
+	return contract.State{Name: contract.StateDisabled, Reason: reason, Timestamp: time.Now().UTC()}
 }
 
-func (s *serviceRuntime) setState(state, reason string) {
-    s.state = protectionState{State: state, Reason: reason, Timestamp: time.Now().UTC()}
-}
-
-func (s *serviceRuntime) ensureFailClosed() error {
-    if !s.config.Enable {
-        s.setState(stateDisabled, "protection disabled by config")
-        return nil
-    }
-
-    // Safety-first default: do not claim protection unless enforcement is validated.
-    // This scaffold intentionally prefers a blocked state rather than allowing direct traffic.
-    s.setState(stateErrorBlocked, "enforcement not verified on this platform")
-    return fmt.Errorf("protection not verified: requires Linux firewall, NetworkManager, and TUN enforcement validation")
+func waitForShutdown() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
 }
 
 func main() {
-    cfg := parseConfig()
-    rt := serviceRuntime{config: cfg}
-
-    fmt.Printf("SnekProxy starting with config path=%s\n", cfg.ConfigPath)
-
-    if err := rt.ensureFailClosed(); err != nil {
-        if cfg.Verbose {
-            fmt.Fprintf(os.Stderr, "fail-closed state: %v\n", err)
-        }
-        fmt.Printf("Protection state: %s (%s)\n", rt.state.State, rt.state.Reason)
-        os.Exit(1)
-    }
-
-    rt.setState(stateProtected, "placeholder: platform enforcement has not been verified in this environment")
-    fmt.Printf("Protection state: %s (%s)\n", rt.state.State, rt.state.Reason)
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

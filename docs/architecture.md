@@ -4,6 +4,8 @@
 
 SnekProxy separates the user experience, privileged enforcement, and packet processing by clear trust boundaries. The design is intentionally fail-closed: the enforcement plane remains authoritative even if the UI or forwarding engine is unhealthy.
 
+The current repository includes an OpenSSH host setup helper and a Qt desktop client that manages an SSH dynamic SOCKS5 tunnel, alongside an experimental Linux blocking-only enforcement foundation. The SSH tunnel is not integrated with the firewall policy. There is no TUN interface or packet-processing engine.
+
 ## Components
 
 ### Dashboard
@@ -16,7 +18,7 @@ The local API binds to loopback only, validates host and origin headers, and enf
 
 ### Privileged networking service
 
-The privileged service owns:
+The planned privileged service owns:
 
 - TUN interface lifecycle
 - route configuration
@@ -24,9 +26,15 @@ The privileged service owns:
 - nftables or equivalent OS enforcement
 - lifecycle state and recovery data
 
+The implemented Linux foundation currently owns only an explicit, narrowly named nftables output table. It permits loopback and drops other locally generated traffic. It does not alter routes, DNS, interfaces, or other firewall tables.
+
 ### Packet-processing engine
 
 The forwarding engine handles packet parsing, TCP/UDP flow handling, DNS translation, and backpressure management. It is isolated from privileged routing decisions and never serves as the sole authority for protection.
+
+### Desktop proxy client
+
+The C++/Qt client uses OpenSSH for authenticated dynamic SOCKS5 forwarding. After validating the local SOCKS listener, it updates and later restores current-user proxy settings: GNOME desktop settings on Linux and WinINET settings on Windows. It keeps a recovery record for restoration after a client crash. Applications that ignore these settings may bypass the tunnel; this component is not a system-wide kill switch.
 
 ## Trust boundaries
 

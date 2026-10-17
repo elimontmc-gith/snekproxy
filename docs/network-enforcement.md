@@ -36,3 +36,11 @@
 ## Egress handling
 
 Service-generated egress is allowed only for explicitly authorized SnekProxy control or forwarding traffic. This project expects those paths to be minimal and separately defined by the privileged service. The general default remains: no direct traffic outside the protected path while protected.
+
+## Implemented Linux foundation
+
+The current foundation creates only `inet snekproxy` with an output base chain whose policy is `drop`, plus a loopback exception. It does not provide any forwarding or service egress exception. Therefore, explicit activation blocks all non-loopback locally generated traffic; it is not a usable proxy mode and must not be reported as `PROTECTED`. The service leaves the policy installed on process exit. `--disable` removes it only when its live rules exactly match the policy SnekProxy created; unknown or modified state is left untouched.
+
+## Desktop SOCKS client
+
+The separate desktop client uses SSH dynamic forwarding with a loopback-only SOCKS5 listener and manages the current user's system proxy settings on supported Linux and Windows desktops. It does not configure firewall rules or guarantee that all application traffic uses the proxy. Do not enable the unrelated blocking-only nftables foundation on the SSH host; it prevents SSH replies.

@@ -14,7 +14,16 @@ The Linux implementation target includes:
 - route and resolver policy management
 - service hardening and recovery
 
-Status: `NOT VERIFIED` in this environment because the sandbox is not a live Linux host with actual firewall and network privileges.
+Implemented foundation:
+
+- Strict YAML config loading
+- Explicit `--enable` activation, root and nftables checks
+- An owned `inet snekproxy` output policy that allows loopback and drops other locally generated traffic
+- Exact-policy verification and refusal to overwrite or remove an unrecognized table
+
+Not implemented: TUN, upstream proxy forwarding, DNS or route management, NetworkManager coordination, and automatic recovery.
+
+Live-host status: `NOT VERIFIED`. Unit tests use a fake command runner and do not prove kernel enforcement.
 
 ## Windows support
 
@@ -29,4 +38,6 @@ Status: `NOT VERIFIED` in this environment.
 
 ## Current repository state
 
-This scaffold documents the architecture and programmatic state model but does not claim production-grade verified enforcement from a real host. The project is intentionally conservative and safe-by-default.
+The Qt desktop client builds per target operating system. Linux integration currently targets GNOME through `gsettings`; Windows integration targets current-user WinINET settings. Other Linux desktop environments are not supported by automatic proxy management. The client is not a kill switch and is not claimed to proxy all applications.
+
+This repository does not claim production-grade verified enforcement from a real host.
